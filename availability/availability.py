@@ -134,12 +134,19 @@ def main():
 
     pprint.pprint(availability)
 
-    shutil.rmtree('availability/')
-    os.mkdir('availability')
+    availability_data_dir = 'availability_data'
+    try:
+        shutil.rmtree(availability_data_dir)
+    except FileNotFoundError:
+        pass
+    os.mkdir(availability_data_dir)
     for probe_id, data in availability.items():
-        with open('availability/probe{n}.json'.format(n=probe_id), 'w') as fd:
+        outfile = os.path.join(
+            availability_data_dir,
+            'probe{n}.json'.format(n=probe_id))
+        with open(outfile, 'w') as fd:
             json.dump(data, fd)
-    print('Saved to availability/probe*.json')
+    print('Saved to {d}'.format(d=availability_data_dir))
 
 
 if __name__ == '__main__':
