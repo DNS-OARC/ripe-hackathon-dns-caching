@@ -10,7 +10,7 @@ asndb = pyasn.pyasn('ipasn.20170420.1200')
 
 def get_asn(ip):
     try:
-        return asndb.lookup(ip)[0]
+        return asndb.lookup(ip)
     except ValueError as ex:
         _LOGGER.error("%s", ex)
 
@@ -28,6 +28,7 @@ class ResolverInfo:
     internal_resolvers = attr.ib()
     external_resolvers = attr.ib()
     resolver_asn = attr.ib()
+    resolver_net = attr.ib()
 
     def merge(self, y):
         self.external_resolvers = self.external_resolvers.union(y.external_resolvers)
@@ -60,33 +61,48 @@ def get_resolver_info(probe_ids, measurement):
             from_ip = res["from"]
             from_probe = res["prb_id"]
 
-            dns_bufs = [dnslib.DNSRecord.parse(base64.b64decode(x["result"]["abuf"])) for x in res_set if "result" in x]
+            for res_measure in res_set:
+                if "result" not in res_measure:
+                    _LOGGER.error("no results in measure: %s", res_measure)
+                    continue
+                dns_buf = dnslib.DNSRecord.parse(base64.b64decode(res_measure["result"]["abuf"]))
 
-            int_resolvers = set([x["dst_addr"] for x in res_set if "dst_addr" in x])
-            ext_resolvers = set([str(x.a.rdata).strip('"') for x in dns_bufs if x.a.rdata is not None])
-            ext_resolver_asn = set([get_asn(ext) for ext in ext_resolvers])
+                int_resolver = res_measure["dst_addr"]
+                if dns_buf.a.rdata is None:
+                    _LOGGER.error("got no rdata")
+                    continue
+                ext_resolver = str(dns_buf.a.rdata).strip('"')
+                x = get_asn(ext_resolver)
+                if x is None:
+                    asn = net = None
+                else:
+                    asn, net = x
 
-            """
-            <DNS RR: 'whoami.akamai.net.' rtype=A rclass=IN ttl=180 rdata='134.147.25.250'>
-            <DNS RR: 'o-o.myaddr.l.google.com.' rtype=TXT rclass=IN ttl=60 rdata='"134.147.25.250"'>
-            """
 
-            info = ResolverInfo(ts=res["timestamp"],
-                                from_ip=from_ip,
-                                from_probe=from_probe,
-                                internal_resolvers=int_resolvers,
-                                external_resolvers=ext_resolvers, resolver_asn=ext_resolver_asn)
-            yield info
+                """
+                <DNS RR: 'whoami.akamai.net.' rtype=A rclass=IN ttl=180 rdata='134.147.25.250'>
+                <DNS RR: 'o-o.myaddr.l.google.com.' rtype=TXT rclass=IN ttl=60 rdata='"134.147.25.250"'>
+                """
+
+                info = ResolverInfo(ts=res["timestamp"],
+                                    from_ip=from_ip,
+                                    from_probe=from_probe,
+                                    internal_resolvers=int_resolver,
+                                    external_resolvers=ext_resolver,
+                                    resolver_net=net,
+                                    resolver_asn=asn)
+                yield info
 
     #pp(results)
 
 def get_info(probe):
-    akamai = get_resolver_info(probe, 8310245)
-    google = get_resolver_info(probe, 8310237)
+    akamai = 8310245
+    google = 8310237
+    measurements = [akamai, google, 8310360, 8310360]
     #nlnet = get_resolver_info(probe)
     import itertools
     res = dict()
-    for x in itertools.chain(akamai, google):
+    for x in itertools.chain(*[get_resolver_info(probe, measure) for measure in measurements]):
         yield x
         #if x.from_probe in res:
         #    res[x.from_probe].merge(x)
@@ -95,6 +111,7 @@ def get_info(probe):
 
     #return res
 
-q=[HOMEPROBE, 1,2,3,4]
+#q=[HOMEPROBE, 1,2,3,4]
+q = None
 for res in get_info(q):
     pp(attr.asdict(res))
