@@ -11,6 +11,9 @@ import requests
 
 
 def fetch_measurement_by_id(measurement_id):
+    '''
+    Fetch the last six hours of the given measurement
+    '''
     params = {
             'format': 'txt',
             'start': int(time.time()) - 3600 * 6,
@@ -51,8 +54,6 @@ def main():
         if jm['type'] != 'dns':
             continue
         prb_id = jm['prb_id']
-#        if prb_id == 1:
-#            import pdb; pdb.set_trace()
         ts = jm['timestamp']
         for result in jm['resultset']:
             error = 'error' in result
@@ -72,15 +73,11 @@ def main():
                 'timestamp': ts,
                 'error': error,
             })
-#        if prb_id == 1:
-#            import pdb; pdb.set_trace()
 
     availability = collections.defaultdict(dict)
     for prb_id, result in proberesults.items():
         last_hour_errors = collections.defaultdict(list)
         last_six_hours_errors = collections.defaultdict(list)
-#        if prb_id == 32246:
-#            import pdb; pdb.set_trace()
         for sample in result:
             # last hour
             if now - 3600 < sample['timestamp'] < now:
