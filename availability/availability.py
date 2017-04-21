@@ -58,45 +58,56 @@ def get_availability_buckets(last_n=6):
     E.g. return a list with 3 objects representing the local nameserver
     availability for the last three hours, one hour each.
     '''
-    pass
+    
 
 
-def get_local_dns_results(measurement_id, start=None, end=None):
-    if end is None:
-        end = int(time.time())
-    if start is None:
-        start = end - 3600 * 6  # 6 hours of data
-    measurement = get_measurement_by_id(
-            measurement_id,
-            start=start,
-            end=end,
-            use_cache=False)
-    results = collections.defaultdict(list)
-    for m in measurement.splitlines():
-        jm = json.loads(m)
-        if jm['type'] != 'dns':
-            continue
-        prb_id = jm['prb_id']
-        ts = jm['timestamp']
-        for result in jm['resultset']:
-            error = 'error' in result
-            if error and 'nameserver' in result['error'] and \
-                    result['error']['nameserver'] == 'no local resolvers found':
-                # ignore misconfigured probes
+class DNSMeasurementResults:
+
+    def __init__(self, measurement_id, start=None, end=None, buckets=6):
+        self.measurement_id = measurement_id
+        self.start = start
+        self.end = end
+        self.buckets = buckets
+        self.results = None
+
+    def fetch(self):
+        if self.end is None:
+            self.end = int(time.time())
+        if self.start is None:
+            self.start = self.end - 3600 * self.buckets  # number of hours of data
+
+        self._measurement = get_measurement_by_id(
+                self.measurement_id,
+                start=self.start,
+                end=self.end,
+                use_cache=False)
+        results = collections.defaultdict(list)
+        for m in self._measurement.splitlines():
+            jm = json.loads(m)
+            if jm['type'] != 'dns':
                 continue
-            try:
-                dst = result['dst_name']
-            except KeyError:
+            prb_id = jm['prb_id']
+            ts = jm['timestamp']
+            for result in jm['resultset']:
+                error = 'error' in result
+                if error and 'nameserver' in result['error'] and \
+                        result['error']['nameserver'] == 'no local resolvers found':
+                    # ignore misconfigured probes
+                    continue
                 try:
-                    dst = result['dst_addr']
+                    dst = result['dst_name']
                 except KeyError:
-                    dst = ''
-            results[prb_id].append({
-                'dst': dst,
-                'timestamp': ts,
-                'error': error,
-            })
-    return results, start, end
+                    try:
+                        dst = result['dst_addr']
+                    except KeyError:
+                        dst = ''
+                results[prb_id].append({
+                    'dst': dst,
+                    'timestamp': ts,
+                    'error': error,
+                })
+        self.results = results
+        return self
 
 
 def save_availability_data(availability):
@@ -117,18 +128,17 @@ def save_availability_data(availability):
 
 def main():
     measurement_id = 30001  # random domains
-
-    local_dns_results, start, end = get_local_dns_results(measurement_id)
+    results = DNSMeasurementResults(measurement_id).fetch()
     availability = collections.defaultdict(dict)
-    for prb_id, result in local_dns_results.items():
+    for prb_id, result in results.results.items():
         last_hour_errors = collections.defaultdict(list)
         last_six_hours_errors = collections.defaultdict(list)
         for sample in result:
             # last hour
-            if end - 3600 < sample['timestamp'] < end:
+            if results.end - 3600 < sample['timestamp'] < results.end:
                 last_hour_errors[sample['dst']].append(sample['error'])
             # last six hours
-            if end - 3600 * 6 < sample['timestamp'] < end:
+            if results.end - 3600 * 6 < sample['timestamp'] < results.end:
                 last_six_hours_errors[sample['dst']].append(sample['error'])
 
         # last hour
