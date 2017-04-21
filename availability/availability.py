@@ -52,16 +52,31 @@ def get_measurement_by_id(measurement_id, start, end, use_cache=True):
     return measurement
 
 
-def get_availability_buckets(last_n=6):
-    '''
-    Return the `last_n` availability metrics divided in 1-hour buckets.
-    E.g. return a list with 3 objects representing the local nameserver
-    availability for the last three hours, one hour each.
-    '''
-    
+#def get_availability_buckets(last_n=6):
+#    '''
+#    Return the `last_n` availability metrics divided in 1-hour buckets.
+#    E.g. return a list with 3 objects representing the local nameserver
+#    availability for the last three hours, one hour each.
+#    '''
+#    
+
+
+class ResolverAvailability:
+
+    def __init__(self, ):
+        self.start = start
+        self.end = end
+        self.compute()
+
+    def compute(self):
+        pass
 
 
 class DNSMeasurementResults:
+    '''
+    Represent DNS results in a simple way, suitable to analyze local caching
+    resolvers behaviour
+    '''
 
     def __init__(self, measurement_id, start=None, end=None, buckets=6):
         self.measurement_id = measurement_id
@@ -109,6 +124,70 @@ class DNSMeasurementResults:
         self.results = results
         return self
 
+    def availability(self):
+        '''
+        Measure the local resolvers availability in 1-hour buckets as floats
+        in range [0, 1].
+        Returns a list of ResolverAvailability objects, orderd from oldest to newest
+        '''
+        availability = collections.defaultdict(dict)
+        for prb_id, result in self.results.items():
+            last_hour_errors = collections.defaultdict(list)
+            last_six_hours_errors = collections.defaultdict(list)
+            for sample in result:
+                # last hour
+                if self.end - 3600 < sample['timestamp'] < self.end:
+                    last_hour_errors[sample['dst']].append(sample['error'])
+                # last six hours
+                if self.end - 3600 * 6 < sample['timestamp'] < self.end:
+                    last_six_hours_errors[sample['dst']].append(sample['error'])
+
+            # last hour
+            last_hour_availability = {}
+            availability[prb_id] = collections.defaultdict(dict)
+            for dst, data in last_hour_errors.items():
+                if len(data) > 0:
+                    last_hour_availability = (
+                        float(data.count(False)) / len(data)
+                    )
+                else:
+                    last_hour_availability = 1.0
+                availability[prb_id][dst]['1h'] = {
+                    'availability': last_hour_availability,
+                    'failing_samples': data.count(True),
+                    'total_samples': len(data),
+                }
+            else:
+                # no data points, set availability to 0
+                availability[prb_id][dst]['1h'] = {
+                    'availability': 0.0,
+                    'failing_samples': 0,
+                    'total_samples': 0,
+                }
+
+            # last six hours
+            last_six_hours_availability = {}
+            for dst, data in last_six_hours_errors.items():
+                if len(data) > 0:
+                    last_six_hours_availability = (
+                        float(data.count(False)) / len(data)
+                    )
+                else:
+                    last_sid_hours_availability = 1.0
+                availability[prb_id][dst]['6h'] = {
+                    'availability': last_six_hours_availability,
+                    'failing_samples': data.count(True),
+                    'total_samples': len(data),
+                }
+            else:
+                # no data points, set availability to 0
+                availability[prb_id][dst]['6h'] = {
+                    'availability': 0.0,
+                    'failing_samples': 0,
+                    'total_samples': 0,
+                }
+        return availability
+
 
 def save_availability_data(availability):
     availability_data_dir = 'availability_data'
@@ -129,63 +208,7 @@ def save_availability_data(availability):
 def main():
     measurement_id = 30001  # random domains
     results = DNSMeasurementResults(measurement_id).fetch()
-    availability = collections.defaultdict(dict)
-    for prb_id, result in results.results.items():
-        last_hour_errors = collections.defaultdict(list)
-        last_six_hours_errors = collections.defaultdict(list)
-        for sample in result:
-            # last hour
-            if results.end - 3600 < sample['timestamp'] < results.end:
-                last_hour_errors[sample['dst']].append(sample['error'])
-            # last six hours
-            if results.end - 3600 * 6 < sample['timestamp'] < results.end:
-                last_six_hours_errors[sample['dst']].append(sample['error'])
-
-        # last hour
-        last_hour_availability = {}
-        availability[prb_id] = collections.defaultdict(dict)
-        for dst, data in last_hour_errors.items():
-            if len(data) > 0:
-                last_hour_availability = (
-                    float(data.count(False)) / len(data)
-                )
-            else:
-                last_hour_availability = 1.0
-            availability[prb_id][dst]['1h'] = {
-                'availability': last_hour_availability,
-                'failing_samples': data.count(True),
-                'total_samples': len(data),
-            }
-        else:
-            # no data points, set availability to 0
-            availability[prb_id][dst]['1h'] = {
-                'availability': 0.0,
-                'failing_samples': 0,
-                'total_samples': 0,
-            }
-
-        # last six hours
-        last_six_hours_availability = {}
-        for dst, data in last_six_hours_errors.items():
-            if len(data) > 0:
-                last_six_hours_availability = (
-                    float(data.count(False)) / len(data)
-                )
-            else:
-                last_sid_hours_availability = 1.0
-            availability[prb_id][dst]['6h'] = {
-                'availability': last_six_hours_availability,
-                'failing_samples': data.count(True),
-                'total_samples': len(data),
-            }
-        else:
-            # no data points, set availability to 0
-            availability[prb_id][dst]['6h'] = {
-                'availability': 0.0,
-                'failing_samples': 0,
-                'total_samples': 0,
-            }
-
+    availability = results.availability()
     pprint.pprint(availability)
     save_availability_data(availability)
 
