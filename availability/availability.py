@@ -52,15 +52,6 @@ def get_measurement_by_id(measurement_id, start, end, use_cache=True):
     return measurement
 
 
-#def get_availability_buckets(last_n=6):
-#    '''
-#    Return the `last_n` availability metrics divided in 1-hour buckets.
-#    E.g. return a list with 3 objects representing the local nameserver
-#    availability for the last three hours, one hour each.
-#    '''
-#    
-
-
 class ResolverAvailability:
 
     def __init__(self, ):
@@ -69,7 +60,7 @@ class ResolverAvailability:
         self.compute()
 
     def compute(self):
-        pass
+        raise NotImplementedError
 
 
 class DNSMeasurementResults:

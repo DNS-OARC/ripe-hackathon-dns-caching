@@ -1,4 +1,23 @@
-## Quick usage
+# What is this?
+
+A small library and command line tool to extract information about the last N
+hours of availability of the local DNS resolvers. The library uses the RIPE
+Atlas probes data to get this information. The data is saved to JSON.
+
+## How does it work?
+
+The library fetches the data from all the Atlas probes for the last N hours (6
+by default) and extract the local DNS resolvers' information from it. Then it
+divides all the data into 1-hour buckets, and for each bucket and for each
+internal resolver, it computes the DNS availability.
+The availability is a number between 0 and 1 obtained by dividing the number of
+successful queries by the total number of queries.
+
+This data can be used to show the availability of DNS by probe, by resolver, and
+by ASN (other aggregations are possible too).
+
+
+## Quick usage example
 
 ```
 ./availability.py
