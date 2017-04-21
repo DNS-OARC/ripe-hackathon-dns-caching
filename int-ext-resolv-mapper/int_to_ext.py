@@ -201,8 +201,9 @@ def stored():
         #pp(attr.asdict(res))
 
 def got_result(results):
-    for result in parse_result([results]):
-        pp(attr.asdict(result))
+    for res in parse_result([results]):
+        print(res.pretty())
+        #pp(attr.asdict(result))
         continue
 
 
@@ -229,6 +230,7 @@ def stream():
 
     except Exception as ex:
         _LOGGER.warning("Got ex: %s" % ex)
+        raise Exception() from ex
     finally:
         stream.disconnect()
 
