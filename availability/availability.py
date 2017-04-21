@@ -4,7 +4,7 @@ import os
 import json
 import time
 import shutil
-import pprint
+import argparse
 import collections
 
 import requests
@@ -174,14 +174,23 @@ def save_availability_data(availability):
             'probe{n}.json'.format(n=probe_id))
         with open(outfile, 'w') as fd:
             json.dump(data, fd)
-    print('Saved to {d}'.format(d=availability_data_dir))
+    print('Saved to {d}/probe*.json'.format(d=availability_data_dir))
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('hours', nargs='?', default=6, type=int,
+        help='Number of hours of data to fetch and analyze')
+    return parser.parse_args()
 
 
 def main():
+    args = parse_args()
     measurement_id = 30001  # random domains
-    results = DNSMeasurementResults(measurement_id).fetch()
+    print('Fetching {n} hours of data'.format(n=args.hours))
+    results = DNSMeasurementResults(measurement_id, num_buckets=args.hours).fetch()
+    print('Analyzing local resolvers availability')
     availability = results.availability()
-    #pprint.pprint(availability)
     save_availability_data(availability)
 
 
