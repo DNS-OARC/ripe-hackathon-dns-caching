@@ -45,11 +45,8 @@ class MeasurementType(IntEnum):
     dnssec_reference = 8311760
     dnssec_bogus = 8311763
 
-do_all = False
-wanted_measurements = [MeasurementType.nxdomain_hijack]
-
-
-print(wanted_measurements)
+do_all = True
+wanted_measurements = [MeasurementType.dnssec_bogus, MeasurementType.dnssec_reference], #MeasurementType.nxdomain_hijack]
 
 def get_asn(ip):
     try:
@@ -66,6 +63,7 @@ def get_probe_info(probe_id):
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("socketIO-client").setLevel(logging.WARNING) # silence socketio client
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.info("wanted: %s" % wanted_measurements)
 
 @attr.s
 class ResolverInfo:
@@ -163,7 +161,7 @@ def parse_result(results):
                     # TODO gotta return non-true indicator here
                     continue
 
-                if meas_type == MeasurementType.qname_minim:
+                elif meas_type == MeasurementType.qname_minim:
                     for rr in dns_buf.rr:
                         rr_s = str(rr.rdata).strip('"')
                         if rr_s.startswith("HOORAY"):  # qname min
@@ -175,22 +173,25 @@ def parse_result(results):
                         or meas_type == MeasurementType.ipv6_tcp:
                     for rr in dns_buf.rr:
                         rr_s = str(rr.rdata).strip('"')
-                        try:
-                            ip = ip_address(rr_s)
-                            if info.external_resolvers is not None:
-                                #raise Exception("resolver was already set by another rr")
-                                _LOGGER.warning("resolver was already set: %s" % dns_buf)
-                            info.external_resolvers = str(ip)
-                        except ValueError as ex:
-                            _LOGGER.warning("got unknown rdata: %s" % rr_s)
+                        if rr_s.startswith("edns0-client-subnet"):
+                            info.edns0_subnet_info = rr_s.split(" ")[0]
+                        else:
+                            try:
+                                ip = ip_address(rr_s)
+                                info.external_resolvers = str(ip)
+                            except ValueError as ex:
+                                _LOGGER.warning("got unknown rdata: %s" % rr_s)
                 elif meas_type == MeasurementType.nxdomain_hijack:
                     if dns_buf.header.get_rcode() != 3:
                         info.nxdomain_hijack = True
                         info.extra = {'hijacks_to': dns_buf.a.rdata}
 
                 elif meas_type == MeasurementType.dnssec_bogus or meas_type == MeasurementType.dnssec_reference:
-
+                    pp(dns_buf)
+                    raise Exception()
                     pass
+                else:
+                    _LOGGER.error("mtype not handled: %s", meas_type)
 
                 #pp(dns_buf.a)
                 if info.external_resolvers:
@@ -224,7 +225,8 @@ def get_resolver_info(probe_ids, measurement):
 
 def get_info(probe):
     import itertools
-    measurements = [get_resolver_info(probe, measure) for measure in MeasurementType if not do_all and measure in wanted_measurements]
+
+    measurements = [get_resolver_info(probe, measure) for measure in MeasurementType.__members__.values() if do_all or measure in wanted_measurements]
     if measurements is None:
         _LOGGER.error("could not get any requested info")
         return
@@ -249,10 +251,7 @@ def stored(to):
     for res in get_info(q):
         #if res.qname_minimization:
         #    print(res.pretty())
-        if res.nxdomain_hijack:
-            print("hijack: %s" % res)
-        continue
-        print(res.pretty())
+        #print(res.pretty())
         if to:
             to.write(json.dumps(attr.asdict(res)))
         #pp(attr.asdict(res))
