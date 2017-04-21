@@ -165,8 +165,6 @@ class DNSMeasurementResults:
                                 'start': start,
                                 'end': end,
                         }
-            if len(buckets) > 6:
-                import pdb; pdb.set_trace()
             availability[prb_id] = buckets
 
         return availability
