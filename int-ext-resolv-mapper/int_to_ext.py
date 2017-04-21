@@ -82,6 +82,9 @@ class ResolverInfo:
     nxdomain_hijack = attr.ib(default=False)
     error = attr.ib(default=0)  # DNS rcode, 3842 = empty buf
     extra = attr.ib(default=None)
+    dnssec_bogus_resolved = attr.ib(default=False)
+    dnssec_valid_resolved = attr.ib(default=False)
+
 
     def pretty(self):
         return "[%s] [%s] ext: %s, ext_resolver: %s, edns0: %s qname-min: %s, nxdomain: %s extra: %s" % (
@@ -119,16 +122,19 @@ def parse_result(results):
                                 edns0_subnet_info=None,
                                 qname_minimization=False,
                                 nxdomain_hijack=False,
-                                error=0)
+                                error=0,
+                                dnssec_bogus_resolved=False,
+                                dnssec_valid_resolved=False,
+                                )
             res_set = res["resultset"]
             from_probe = res["prb_id"]
 
             if "probe" in res:
-                probe_info = res["probe"]
+                info.probe_info = res["probe"]
             else:
-                probe_info = get_probe_info(from_probe)
+                info.probe_info = get_probe_info(from_probe)
 
-            _LOGGER.debug("== Probe info ==\n%s", pf(probe_info))
+            _LOGGER.debug("== Probe info ==\n%s", pf(info.probe_info))
 
             for res_measure in res_set:
                 if "result" not in res_measure:
@@ -143,6 +149,9 @@ def parse_result(results):
                     dns_buf = dnslib.DNSRecord.parse(base64.b64decode(res_measure["result"]["abuf"]))
                 except dnslib.dns.DNSError as ex:
                     _LOGGER.warning("Unable to parse abuf: %s" % ex)
+                    info.rcode = 8044
+                    info.extra = {'ex': str(ex)}
+                    yield info
                     continue
 
                 info.internal_resolvers = res_measure["dst_addr"]
@@ -155,11 +164,12 @@ def parse_result(results):
                     continue # hm, okay to reuse the object?
 
                 if len(dns_buf.rr) < 1 or dns_buf.a.rdata is None:
-                    _LOGGER.error("got no rdata: %s", dns_buf)
+                    _LOGGER.debug("got no rdata: %s", dns_buf)
                     info.error = 3842 # empty buf
                     #raise Exception()
                     # TODO gotta return non-true indicator here
                     continue
+
 
                 elif meas_type == MeasurementType.qname_minim:
                     for rr in dns_buf.rr:
@@ -174,7 +184,7 @@ def parse_result(results):
                     for rr in dns_buf.rr:
                         rr_s = str(rr.rdata).strip('"')
                         if rr_s.startswith("edns0-client-subnet"):
-                            info.edns0_subnet_info = rr_s.split(" ")[0]
+                            info.edns0_subnet_info = rr_s.split(" ")[1]
                         else:
                             try:
                                 ip = ip_address(rr_s)
@@ -184,12 +194,16 @@ def parse_result(results):
                 elif meas_type == MeasurementType.nxdomain_hijack:
                     if dns_buf.header.get_rcode() != 3:
                         info.nxdomain_hijack = True
-                        info.extra = {'hijacks_to': dns_buf.a.rdata}
+                        info.extra = {'hijacks_to': str(dns_buf.a.rdata)}
 
-                elif meas_type == MeasurementType.dnssec_bogus or meas_type == MeasurementType.dnssec_reference:
-                    pp(dns_buf)
-                    raise Exception()
-                    pass
+                elif meas_type == MeasurementType.dnssec_bogus:
+                    if dns_buf.header.get_rcode() != 0:
+                        info.dnssec_bogus_resolved = True
+                elif meas_type == MeasurementType.dnssec_reference:
+                    for rr in dns_buf.rr:
+                        rr_s = str(rr.rdata).strip('"')
+                        if rr_s == "1.1.1.1":
+                            info.dnssec_valid_resolved = True
                 else:
                     _LOGGER.error("mtype not handled: %s", meas_type)
 
@@ -210,7 +224,7 @@ def parse_result(results):
 def get_resolver_info(probe_ids, measurement):
     kwargs = {
         "msm_id": measurement,
-        "start": datetime.utcnow() - timedelta(hours = 2),
+        "start": datetime.utcnow() - timedelta(minutes=90),
         # "stop": datetime(2017, 4, 2),
     }
     if probe_ids:
@@ -248,17 +262,23 @@ def cli():
 def stored(to):
     q = [HOMEPROBE]  # , 1,2,3,4]
     q = None
+    results = []
     for res in get_info(q):
+        if res.dnssec_bogus_resolved:
+            print(res.pretty())
         #if res.qname_minimization:
         #    print(res.pretty())
         #print(res.pretty())
         if to:
-            to.write(json.dumps(attr.asdict(res)))
+            results.append(attr.asdict(res))
+    if to:
+        to.write(json.dumps(results).encode('utf-8'))
         #pp(attr.asdict(res))
 
 def got_result(results):
     for res in parse_result([results]):
-        print(res.pretty())
+        if res.dnssec_bogus_resolved:
+            print(res.pretty())
         #pp(attr.asdict(result))
         continue
 
