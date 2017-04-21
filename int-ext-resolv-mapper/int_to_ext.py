@@ -108,7 +108,11 @@ def parse_result(results):
                 ext_resolver = None
 
                 #pp(res_measure)
-                dns_buf = dnslib.DNSRecord.parse(base64.b64decode(res_measure["result"]["abuf"]))
+                try:
+                    dns_buf = dnslib.DNSRecord.parse(base64.b64decode(res_measure["result"]["abuf"]))
+                except dnslib.dns.DNSError as ex:
+                    _LOGGER.warning("Unable to parse abuf: %s" % ex)
+                    continue
 
                 int_resolver = res_measure["dst_addr"]
                 if len(dns_buf.rr) < 1 or dns_buf.a.rdata is None:
