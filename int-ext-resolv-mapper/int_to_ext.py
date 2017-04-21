@@ -9,7 +9,7 @@ import click
 import json
 from ipaddress import ip_address
 from enum import IntEnum
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # TODO use ripestats for realtime info
 asndb = pyasn.pyasn('ipasn.20170420.1200')
@@ -31,12 +31,12 @@ HOMEPROBE = 27635
 
 # measurements to listen to
 class MeasurementType(IntEnum):
-    #akamai_whois = 8310245
+    akamai_whois = 8310245
     google_whois = 8310237
-    #qname_minim = 8310250
-    #ipv4_tcp = 8310360
-    #ipv6_tcp = 8310364
-    #ipv6_cap = 8310366
+    qname_minim = 8310250
+    ipv4_tcp = 8310360
+    ipv6_tcp = 8310364
+    ipv6_cap = 8310366
 
     # TODO dnssec, normal check, needs some merge work
     #
@@ -159,10 +159,11 @@ def parse_result(results):
 def get_resolver_info(probe_ids, measurement):
     kwargs = {
         "msm_id": measurement,
-        "start": datetime(2017, 4, 20, hour=22),
-        "stop": datetime(2017, 4, 20, hour=23),
-        "probe_ids": probe_ids
+        "start": datetime.utcnow() - timedelta(hours = 2),
+        # "stop": datetime(2017, 4, 2),
     }
+    if probe_ids:
+    	kwargs["probe_ids"] = probe_ids
     is_success, results = AtlasResultsRequest(**kwargs).create()
     if not is_success:
         _LOGGER.error("Request failed: %s %s", probe_ids, measurement)
