@@ -15,6 +15,8 @@ if __name__ == "__main__":
 			r = resolvers[res.resolver_net] = dict()
 			r['probes'] = set()
 			r['edns0_client_subnet'] = False
+		else:
+			r = resolvers[res.resolver_net]
 
 		if not res.probe_info:
 			continue
