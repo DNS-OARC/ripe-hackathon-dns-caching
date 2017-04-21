@@ -78,18 +78,18 @@ class DNSMeasurementResults:
     resolvers behaviour
     '''
 
-    def __init__(self, measurement_id, start=None, end=None, buckets=6):
+    def __init__(self, measurement_id, start=None, end=None, num_buckets=6):
         self.measurement_id = measurement_id
         self.start = start
         self.end = end
-        self.buckets = buckets
+        self.num_buckets = num_buckets  # TODO make sure it's a positive integer
         self.results = None
 
     def fetch(self):
         if self.end is None:
             self.end = int(time.time())
         if self.start is None:
-            self.start = self.end - 3600 * self.buckets  # number of hours of data
+            self.start = self.end - 3600 * self.num_buckets  # number of hours of data
 
         self._measurement = get_measurement_by_id(
                 self.measurement_id,
@@ -128,64 +128,47 @@ class DNSMeasurementResults:
         '''
         Measure the local resolvers availability in 1-hour buckets as floats
         in range [0, 1].
-        Returns a list of ResolverAvailability objects, orderd from oldest to newest
+        Returns a list of ResolverAvailability objects, orderd from newest to
+        oldest
         '''
         availability = collections.defaultdict(dict)
         for prb_id, result in self.results.items():
-            last_hour_errors = collections.defaultdict(list)
-            last_six_hours_errors = collections.defaultdict(list)
+            samples_per_bucket = [collections.defaultdict(list)] * self.num_buckets
             for sample in result:
-                # last hour
-                if self.end - 3600 < sample['timestamp'] < self.end:
-                    last_hour_errors[sample['dst']].append(sample['error'])
-                # last six hours
-                if self.end - 3600 * 6 < sample['timestamp'] < self.end:
-                    last_six_hours_errors[sample['dst']].append(sample['error'])
+                dst = sample['dst']
+                for bucket_num in range(self.num_buckets):
+                    if self.end - 3600 * (bucket_num + 1) < sample['timestamp'] <= self.end - 3600 * bucket_num:
+                        samples_per_bucket[bucket_num][dst].append(sample)
 
-            # last hour
-            last_hour_availability = {}
-            availability[prb_id] = collections.defaultdict(dict)
-            for dst, data in last_hour_errors.items():
-                if len(data) > 0:
-                    last_hour_availability = (
-                        float(data.count(False)) / len(data)
-                    )
-                else:
-                    last_hour_availability = 1.0
-                availability[prb_id][dst]['1h'] = {
-                    'availability': last_hour_availability,
-                    'failing_samples': data.count(True),
-                    'total_samples': len(data),
-                }
-            else:
-                # no data points, set availability to 0
-                availability[prb_id][dst]['1h'] = {
-                    'availability': 0.0,
-                    'failing_samples': 0,
-                    'total_samples': 0,
-                }
+            buckets = []
+            for bucket_num in range(self.num_buckets):
+                buckets.append({})
+                for dst, samples in samples_per_bucket[bucket_num].items():
+                    total_samples = len(samples)
+                    start = self.end - 3600 * (bucket_num + 1) + 1
+                    end = self.end - 3600 * bucket_num
+                    if total_samples > 0:
+                        errors = len([True for s in samples if s['error'] is True])
+                        buckets[bucket_num][dst] = {
+                                'availability': 1 - float(errors) / total_samples,
+                                'failing_samples': errors,
+                                'total_samples': total_samples,
+                                'start': start,
+                                'end': end,
+                        }
+                    else:
+                        # no samples, no party
+                        buckets[bucket_num][dst] = {
+                                'availability': 0.0,
+                                'failing_samples': 0,
+                                'total_samples': 0,
+                                'start': start,
+                                'end': end,
+                        }
+            if len(buckets) > 6:
+                import pdb; pdb.set_trace()
+            availability[prb_id] = buckets
 
-            # last six hours
-            last_six_hours_availability = {}
-            for dst, data in last_six_hours_errors.items():
-                if len(data) > 0:
-                    last_six_hours_availability = (
-                        float(data.count(False)) / len(data)
-                    )
-                else:
-                    last_sid_hours_availability = 1.0
-                availability[prb_id][dst]['6h'] = {
-                    'availability': last_six_hours_availability,
-                    'failing_samples': data.count(True),
-                    'total_samples': len(data),
-                }
-            else:
-                # no data points, set availability to 0
-                availability[prb_id][dst]['6h'] = {
-                    'availability': 0.0,
-                    'failing_samples': 0,
-                    'total_samples': 0,
-                }
         return availability
 
 
@@ -209,7 +192,7 @@ def main():
     measurement_id = 30001  # random domains
     results = DNSMeasurementResults(measurement_id).fetch()
     availability = results.availability()
-    pprint.pprint(availability)
+    #pprint.pprint(availability)
     save_availability_data(availability)
 
 
