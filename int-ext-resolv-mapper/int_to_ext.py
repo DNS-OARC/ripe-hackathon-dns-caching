@@ -6,14 +6,20 @@ import pyasn
 import base64
 import dnslib
 import click
+import json
+from ipaddress import ip_address
 from enum import IntEnum
+from datetime import datetime
 
 # TODO use ripestats for realtime info
 asndb = pyasn.pyasn('ipasn.20170420.1200')
+with open("../enrich-probe-info/prbid_to_info.json") as f:
+    probe_db = json.load(f)
 
 HOMEPROBE = 27635
 
 """
+   * https://atlas.ripe.net/measurements/8310237/ (google 'whoami')
    * https://atlas.ripe.net/measurements/8310245/ (akamai 'whoami')
     * https://atlas.ripe.net/measurements/8310250/ (qname minimisation test)
     * https://atlas.ripe.net/measurements/8310360/ (TCP IPv4 capability)
@@ -25,12 +31,12 @@ HOMEPROBE = 27635
 
 # measurements to listen to
 class MeasurementType(IntEnum):
-    akamai_whois = 8310245
+    #akamai_whois = 8310245
     google_whois = 8310237
-    qname_minim = 8310250
-    ipv4_tcp = 8310360
-    ipv6_tcp = 8310364
-    ipv6_cap = 8310366
+    #qname_minim = 8310250
+    #ipv4_tcp = 8310360
+    #ipv6_tcp = 8310364
+    #ipv6_cap = 8310366
 
     # TODO dnssec, normal check, needs some merge work
     #
@@ -41,6 +47,12 @@ def get_asn(ip):
         return asndb.lookup(ip)
     except ValueError as ex:
         _LOGGER.error("%s", ex)
+
+def get_probe_info(probe_id):
+    try:
+        return probe_db[str(probe_id)]
+    except:
+        return None
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("socketIO-client").setLevel(logging.WARNING) # silence socketio client
@@ -58,6 +70,14 @@ class ResolverInfo:
     resolver_asn = attr.ib()
     resolver_net = attr.ib()
     probe_info = attr.ib()
+    edns0_subnet_info = attr.ib()
+
+    def pretty(self):
+        return "[%s] [%s] ext: %s, ext_resolver: %s, edns0: %s" % (self.from_probe,
+                                                                   self.measurement_type,
+                                                                   self.from_ip,
+                                                                   self.external_resolvers,
+                                                                   self.edns0_subnet_info)
 
     def merge(self, y):
         self.external_resolvers = self.external_resolvers.union(y.external_resolvers)
@@ -68,28 +88,50 @@ class ResolverInfo:
 
 def parse_result(results):
     for res in results:
-        pp(res)
         if "resultset" in res:
             res_set = res["resultset"]
             from_ip = res["from"]
             from_probe = res["prb_id"]
             probe_info = {}
+            subnet_info = None
             meas_type = MeasurementType(res["msm_id"])
             if "probe" in res:
                 probe_info = res["probe"]
+            else:
+                probe_info = get_probe_info(from_probe)
 
             for res_measure in res_set:
                 if "result" not in res_measure:
                     _LOGGER.error("no results in measure: %s", res_measure)
                     continue
+
+                ext_resolver = None
+
+                #pp(res_measure)
                 dns_buf = dnslib.DNSRecord.parse(base64.b64decode(res_measure["result"]["abuf"]))
 
                 int_resolver = res_measure["dst_addr"]
-                if dns_buf.a.rdata is None:
+                if len(dns_buf.rr) < 1 or dns_buf.a.rdata is None:
                     _LOGGER.error("got no rdata")
                     # TODO gotta return non-true indicator here
                     continue
-                ext_resolver = str(dns_buf.a.rdata).strip('"')
+
+                for rr in dns_buf.rr:
+                    rr_s = str(rr.rdata).strip('"')
+                    if rr_s.startswith("edns0-client-subnet"):
+                        subnet_info = rr_s.split(" ")[1]
+                    else:
+                        try:
+                            ip = ip_address(rr_s)
+                            if ext_resolver is not None:
+                                #raise Exception("resolver was already set by another rr")
+                                _LOGGER.warning("resolver was already set: %s" % dns_buf)
+                            ext_resolver = str(ip)
+                        except ValueError as ex:
+                            _LOGGER.warning("got unknown rdata: %s" % rr_s)
+
+
+                #pp(dns_buf.a)
                 x = get_asn(ext_resolver)
                 if x is None:
                     asn = net = None
@@ -110,14 +152,15 @@ def parse_result(results):
                                     resolver_net=net,
                                     resolver_asn=asn,
                                     probe_info=probe_info,
-                                    measurement_type=meas_type)
+                                    measurement_type=meas_type,
+                                    edns0_subnet_info=subnet_info)
                 yield info
 
 def get_resolver_info(probe_ids, measurement):
     kwargs = {
         "msm_id": measurement,
-        # "start": datetime(2017, 4, 1),
-        # "stop": datetime(2017, 4, 2),
+        "start": datetime(2017, 4, 20, hour=22),
+        "stop": datetime(2017, 4, 20, hour=23),
         "probe_ids": probe_ids
     }
     is_success, results = AtlasResultsRequest(**kwargs).create()
@@ -153,11 +196,14 @@ def stored():
     q = [HOMEPROBE]  # , 1,2,3,4]
     q = None
     for res in get_info(q):
-        pp(attr.asdict(res))
+        print(res.pretty())
+        #pp(attr.asdict(res))
 
 def got_result(results):
     for result in parse_result([results]):
         pp(attr.asdict(result))
+        continue
+
 
 @cli.command()
 def stream():
