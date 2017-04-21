@@ -54,7 +54,7 @@ def get_probe_info(probe_id):
     except:
         return None
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.ERROR)
 logging.getLogger("socketIO-client").setLevel(logging.WARNING) # silence socketio client
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,13 +71,17 @@ class ResolverInfo:
     resolver_net = attr.ib()
     probe_info = attr.ib()
     edns0_subnet_info = attr.ib()
+    qname_minimization = attr.ib(default=False)
+    rcode = attr.ib(default=0)  # DNS rcode, 3842 = empty buf
 
     def pretty(self):
-        return "[%s] [%s] ext: %s, ext_resolver: %s, edns0: %s" % (self.from_probe,
-                                                                   self.measurement_type,
-                                                                   self.from_ip,
-                                                                   self.external_resolvers,
-                                                                   self.edns0_subnet_info)
+        return "[%s] [%s] ext: %s, ext_resolver: %s, edns0: %s qname-min: %s" % (
+            self.from_probe,
+            self.measurement_type,
+            self.from_ip,
+            self.external_resolvers,
+            self.edns0_subnet_info,
+            self.qname_minimization)
 
     def merge(self, y):
         self.external_resolvers = self.external_resolvers.union(y.external_resolvers)
@@ -89,20 +93,31 @@ class ResolverInfo:
 def parse_result(results):
     for res in results:
         if "resultset" in res:
+            info = ResolverInfo(ts=res["timestamp"],
+                                from_ip=res["from"],
+                                from_probe=res["prb_id"],
+                                internal_resolvers=None,
+                                external_resolvers=None,
+                                resolver_net=None,
+                                resolver_asn=None,
+                                probe_info=None,
+                                measurement_type=MeasurementType(res["msm_id"]),
+                                edns0_subnet_info=None,
+                                qname_minimization=False,
+                                rcode=0)
             res_set = res["resultset"]
-            from_ip = res["from"]
             from_probe = res["prb_id"]
-            probe_info = {}
-            subnet_info = None
-            meas_type = MeasurementType(res["msm_id"])
+
             if "probe" in res:
                 probe_info = res["probe"]
             else:
                 probe_info = get_probe_info(from_probe)
 
+
+
             for res_measure in res_set:
                 if "result" not in res_measure:
-                    _LOGGER.error("no results in measure: %s", res_measure)
+                    _LOGGER.warning("no results in measure: %s", res_measure)
                     continue
 
                 ext_resolver = None
@@ -114,50 +129,55 @@ def parse_result(results):
                     _LOGGER.warning("Unable to parse abuf: %s" % ex)
                     continue
 
-                int_resolver = res_measure["dst_addr"]
+                info.internal_resolvers = res_measure["dst_addr"]
+                rcode = dns_buf.header.get_rcode()
+                info.rcode = rcode
+                if rcode != 0:
+                    dns_error_msg = dnslib.dns.RCODE.get(rcode)
+                    #info.error_message = dns_error_msg
+                    yield info
+                    continue # hm, okay to reuse the object?
+
                 if len(dns_buf.rr) < 1 or dns_buf.a.rdata is None:
-                    _LOGGER.error("got no rdata")
+                    _LOGGER.error("got no rdata: %s", dns_buf)
+                    info.rcode = 3842 # empty buf
+                    #raise Exception()
                     # TODO gotta return non-true indicator here
                     continue
 
                 for rr in dns_buf.rr:
                     rr_s = str(rr.rdata).strip('"')
                     if rr_s.startswith("edns0-client-subnet"):
-                        subnet_info = rr_s.split(" ")[1]
+                        info.edns0_subnet_info = rr_s.split(" ")[1]
+                    elif rr_s.startswith("HOORAY"):  # qname min
+                        info.qname_minimization = True
+                    elif rr_s.startswith("NO"): # negative qname
+                        info.qname_minimization = False
+                    elif rr_s.startswith("a.b.qnamemin-test.internet.nl."):  # be less noisy
+                        pass
                     else:
                         try:
                             ip = ip_address(rr_s)
                             if ext_resolver is not None:
                                 #raise Exception("resolver was already set by another rr")
                                 _LOGGER.warning("resolver was already set: %s" % dns_buf)
-                            ext_resolver = str(ip)
+                            info.external_resolvers = str(ip)
                         except ValueError as ex:
                             _LOGGER.warning("got unknown rdata: %s" % rr_s)
 
 
                 #pp(dns_buf.a)
-                x = get_asn(ext_resolver)
-                if x is None:
-                    asn = net = None
-                else:
-                    asn, net = x
-
+                if info.external_resolvers:
+                    x = get_asn(info.external_resolvers)
+                    if x is not None:
+                        info.resolver_asn = asn
+                        info.resolver_net = net
 
                 """
                 <DNS RR: 'whoami.akamai.net.' rtype=A rclass=IN ttl=180 rdata='134.147.25.250'>
                 <DNS RR: 'o-o.myaddr.l.google.com.' rtype=TXT rclass=IN ttl=60 rdata='"134.147.25.250"'>
                 """
 
-                info = ResolverInfo(ts=res["timestamp"],
-                                    from_ip=from_ip,
-                                    from_probe=from_probe,
-                                    internal_resolvers=int_resolver,
-                                    external_resolvers=ext_resolver,
-                                    resolver_net=net,
-                                    resolver_asn=asn,
-                                    probe_info=probe_info,
-                                    measurement_type=meas_type,
-                                    edns0_subnet_info=subnet_info)
                 yield info
 
 def get_resolver_info(probe_ids, measurement):
@@ -177,7 +197,6 @@ def get_resolver_info(probe_ids, measurement):
 
 
 def get_info(probe):
-    #nlnet = get_resolver_info(probe)
     import itertools
     measurements = [get_resolver_info(probe, measure) for measure in MeasurementType]
     if measurements is None:
@@ -201,6 +220,8 @@ def stored():
     q = [HOMEPROBE]  # , 1,2,3,4]
     q = None
     for res in get_info(q):
+        #if res.qname_minimization:
+        #    print(res.pretty())
         print(res.pretty())
         #pp(attr.asdict(res))
 
