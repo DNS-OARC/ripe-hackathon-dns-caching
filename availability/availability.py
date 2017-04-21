@@ -10,45 +10,68 @@ import collections
 import requests
 
 
-def fetch_measurement_by_id(measurement_id):
+def fetch_measurement_by_id(measurement_id, start, end):
     '''
     Fetch the last six hours of the given measurement
     '''
+    if start >= end:
+        raise ValueError('Start time must be smaller than end time')
     params = {
-            'format': 'txt',
-            'start': int(time.time()) - 3600 * 6,
+        'format': 'txt',
+        'start': start,
+        'end': end,
     }
     url = "https://atlas.ripe.net/api/v2/measurements/{m}/results/".format(
         m=measurement_id)
     req = requests.get(url, params=params)
-    # TODO check HTTP code
+    if req.status_code != 200:
+        raise Exception('Status code is not 200. Output: {o}'.format(o=req.text))
     return req.text
 
 
-def get_measurement_by_id(measurement_id, caching=True):
+def get_measurement_by_id(measurement_id, start, end, use_cache=True):
     measurement_file = 'measurement-{m}.json'.format(m=measurement_id)
-    use_cached_measurement = False
-    if use_cached_measurement:
+    do_fetch = False
+    if use_cache:
+        # FIXME caching does not consider start and end time, better to remove?
         try:
             with open(measurement_file) as fd:
                 measurement = fd.read()
                 print('Using cached measurement file {f}'.format(f=measurement_file))
         except (OSError, IOError):
-            measurement = fetch_measurement_by_id(measurement_id)
+            do_fetch = True
     else:
-        measurement = fetch_measurement_by_id(measurement_id)
+        do_fetch = True
+
+    if do_fetch:
+        measurement = fetch_measurement_by_id(measurement_id, start, end)
+
     with open(measurement_file, 'w') as fd:
         fd.write(measurement)
     print('Saved to {f}'.format(f=measurement_file))
     return measurement
 
 
-def main():
-    measurement_id = 30001
+def get_availability_buckets(last_n=6):
+    '''
+    Return the `last_n` availability metrics divided in 1-hour buckets.
+    E.g. return a list with 3 objects representing the local nameserver
+    availability for the last three hours, one hour each.
+    '''
+    pass
 
-    now = time.time()
-    proberesults = collections.defaultdict(list)
-    measurement = get_measurement_by_id(measurement_id, caching=False)
+
+def get_local_dns_results(measurement_id, start=None, end=None):
+    if end is None:
+        end = int(time.time())
+    if start is None:
+        start = end - 3600 * 6  # 6 hours of data
+    measurement = get_measurement_by_id(
+            measurement_id,
+            start=start,
+            end=end,
+            use_cache=False)
+    results = collections.defaultdict(list)
     for m in measurement.splitlines():
         jm = json.loads(m)
         if jm['type'] != 'dns':
@@ -68,22 +91,28 @@ def main():
                     dst = result['dst_addr']
                 except KeyError:
                     dst = ''
-            proberesults[prb_id].append({
+            results[prb_id].append({
                 'dst': dst,
                 'timestamp': ts,
                 'error': error,
             })
+    return results, start, end
 
+
+def main():
+    measurement_id = 30001  # random domains
+
+    local_dns_results, start, end = get_local_dns_results(measurement_id)
     availability = collections.defaultdict(dict)
-    for prb_id, result in proberesults.items():
+    for prb_id, result in local_dns_results.items():
         last_hour_errors = collections.defaultdict(list)
         last_six_hours_errors = collections.defaultdict(list)
         for sample in result:
             # last hour
-            if now - 3600 < sample['timestamp'] < now:
+            if end - 3600 < sample['timestamp'] < end:
                 last_hour_errors[sample['dst']].append(sample['error'])
             # last six hours
-            if now - 3600 * 6 < sample['timestamp'] < now:
+            if end - 3600 * 6 < sample['timestamp'] < end:
                 last_six_hours_errors[sample['dst']].append(sample['error'])
 
         # last hour
@@ -91,7 +120,7 @@ def main():
         availability[prb_id] = collections.defaultdict(dict)
         for dst, data in last_hour_errors.items():
             if len(data) > 0:
-                last_hour_availability[dst] = (
+                last_hour_availability = (
                     float(data.count(False)) / len(data)
                 )
             else:
@@ -112,7 +141,7 @@ def main():
         last_six_hours_availability = {}
         for dst, data in last_six_hours_errors.items():
             if len(data) > 0:
-                last_six_hours_availability[dst] = (
+                last_six_hours_availability = (
                     float(data.count(False)) / len(data)
                 )
             else:
