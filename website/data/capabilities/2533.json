@@ -1,0 +1,1 @@
+{"probe_id": 2533, "resolvers": [{"ipv6_tcp": true, "resolver_asn": 15169, "resolver_net": "74.125.0.0/16", "ipv4_tcp": true, "internal": "172.30.30.11", "ipv6_cap": true, "edns0_client_subnet": "130.0.72.0/24"}, {"ipv4_tcp": true, "internal": "172.30.30.7", "resolver_asn": 5588, "edns0_client_subnet": "130.0.72.0/24", "resolver_net": "193.86.0.0/16"}]}

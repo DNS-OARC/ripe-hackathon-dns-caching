@@ -1,0 +1,1 @@
+{"probe_id": 26911, "resolvers": [{"ipv6_tcp": true, "resolver_asn": 12897, "resolver_net": "95.131.96.0/21", "ipv4_tcp": true, "internal": "192.168.0.1", "ipv6_cap": true}, {"ipv6_tcp": true, "resolver_asn": 12897, "resolver_net": "95.131.96.0/21", "ipv4_tcp": true, "internal": "fd35:4614:d75d:2:a96:d7ff:fe77:92d8", "ipv6_cap": true}]}

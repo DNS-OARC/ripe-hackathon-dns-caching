@@ -1,0 +1,1 @@
+{"probe_id": 16789, "resolvers": [{"ipv6_tcp": true, "resolver_asn": 60197, "resolver_net": "80.67.188.0/24", "ipv4_tcp": true, "internal": "fda7:c0e9:9a14:1337::1", "ipv6_cap": true, "qname_minimization": true}, {"ipv6_tcp": true, "resolver_asn": 60197, "resolver_net": "80.67.188.0/24", "ipv4_tcp": true, "internal": "192.168.1.1", "ipv6_cap": true, "qname_minimization": true}]}

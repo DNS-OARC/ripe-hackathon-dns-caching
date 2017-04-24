@@ -1,0 +1,1 @@
+{"probe_id": 22478, "resolvers": [{"ipv4_tcp": true, "internal": "fd8f:971f:ccf7::1", "resolver_asn": 42306, "resolver_net": "77.236.192.0/19", "qname_minimization": true}, {"ipv4_tcp": true, "internal": "192.168.1.1", "resolver_asn": 42306, "resolver_net": "77.236.192.0/19", "qname_minimization": true}]}

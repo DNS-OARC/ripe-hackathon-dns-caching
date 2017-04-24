@@ -1,0 +1,1 @@
+{"probe_id": 17856, "resolvers": [{"ipv4_tcp": true, "internal": "132.66.17.135", "resolver_asn": 378, "resolver_net": "132.64.0.0/13"}, {"ipv4_tcp": true, "internal": "132.66.17.137", "resolver_asn": 378, "resolver_net": "132.64.0.0/13"}, {"ipv6_tcp": true, "resolver_asn": 378, "resolver_net": "132.64.0.0/13", "ipv4_tcp": true, "internal": "132.66.32.10", "ipv6_cap": true}]}

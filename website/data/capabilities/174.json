@@ -1,0 +1,1 @@
+{"probe_id": 174, "resolvers": [{"ipv6_tcp": true, "resolver_asn": 6830, "resolver_net": "213.124.176.0/20", "ipv4_tcp": true, "internal": "192.168.1.1", "ipv6_cap": true, "qname_minimization": true}]}

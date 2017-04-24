@@ -1,0 +1,1 @@
+{"probe_id": 18618, "resolvers": [{"ipv4_tcp": true, "internal": "fdfc:325a:b667::1", "resolver_asn": 35613, "resolver_net": "176.74.128.0/19", "qname_minimization": true}, {"ipv4_tcp": true, "internal": "192.168.1.1", "resolver_asn": 35613, "resolver_net": "176.74.128.0/19", "qname_minimization": true}]}
