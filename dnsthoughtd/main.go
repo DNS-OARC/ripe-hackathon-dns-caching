@@ -13,21 +13,19 @@ import (
     "strconv"
 )
 
-// var domainName string
-//
-// func init() {
-//     flag.StringVar(&domainName, "dn", "", "Base domain name")
-// }
+var debug bool
+
+func init() {
+    flag.BoolVar(&debug, "debug", false, "Enable debug output")
+}
 
 func main() {
     flag.Parse()
 
-    // if !strings.HasSuffix(domainName, ".") {
-    //     log.Fatalf("-dn is not FQDN")
-    // }
-
     dns.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
-        log.Printf("%v", r.String())
+        if debug {
+            log.Printf("%v", r.String())
+        }
 
         var (
             v4  bool
@@ -64,7 +62,9 @@ func main() {
                 }
                 if tc {
                     m.Truncated = true
-                    log.Printf("%v", m.String())
+                    if debug {
+                        log.Printf("%v", m.String())
+                    }
                     w.WriteMsg(m)
                     return
                 }
@@ -99,7 +99,9 @@ func main() {
         	}
         }
 
-        log.Printf("%v", m.String())
+        if debug {
+            log.Printf("%v", m.String())
+        }
         w.WriteMsg(m)
     })
 
@@ -136,7 +138,9 @@ func main() {
             log.Fatalf("Invalid connection type")
         }
 
-        log.Printf("Listening on %s://%s", net, addr)
+        if debug {
+            log.Printf("Listening on %s://%s", net, addr)
+        }
     }
 
     sig := make(chan os.Signal)
